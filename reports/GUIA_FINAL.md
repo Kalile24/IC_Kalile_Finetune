@@ -2,14 +2,18 @@
 
 Injeção de Contexto de Tarefa no Preditor de Intenção
 
-> Todo o código (OS-1 a OS-7) já está pronto e testado (16/16 testes automatizados).
-> O que falta é executar 4 blocos, nesta ordem: **(1) gravar e anotar sessões,
-> (2) consolidar 3 datasets, (3) treinar V0/V1/V2, (4) gerar tabela e figuras finais.**
+> Todo o código (OS-1 a OS-7) já está pronto e testado (18 testes em
+> `hrc-finetune/tests/`, 52 em `hrc-data-collection/tests/`).
+> Este guia descreve o procedimento completo de 4 blocos, nesta ordem:
+> **(1) gravar e anotar sessões, (2) consolidar 3 datasets, (3) treinar
+> V0/V1/V2, (4) gerar tabela e figuras finais.**
 >
-> Versão completa com todos os comandos formatados: [`relatorio_final_ic.pdf`](relatorio_final_ic.pdf).
-> O PDF tem um **Apêndice A** com as 6 rotas detalhadas passo a passo (gesto,
-> estágio, parafusos e contexto 7D em cada linha) — use-o na hora de gravar.
-> Este `.md` é a versão rápida de consulta/checklist.
+> A primeira rodada real já foi executada: 8 sessões, 2 participantes,
+> split de teste fixado em `S05_20260712` + `S02_20260712`. Resultados e
+> discussão em
+> [`experimento_2026-07-13_split_unico_epochs60.md`](experimento_2026-07-13_split_unico_epochs60.md).
+> Este `.md` permanece como referência operacional para rodadas futuras de
+> coleta (mais sessões, outro split).
 
 Ambiente: conda `hrc` (`source /home/marcos-kalile/anaconda3/bin/activate hrc`).
 Coleta e consolidação rodam em `hrc-data-collection/`; treino e agregação em `hrc-finetune/`.
@@ -50,7 +54,8 @@ Vêm de `Rotas_e_Vetor_de_Contexto.pdf` (política `proxy_graph`, a mesma que `p
 | R05 | Completa com `no_action` intercalado | Mesma sequência de R01, com pausas de `no_action` em pontos de contexto igual — engorda essa classe sem inventar contexto novo. | 32 |
 | **R06** | Ordem alternativa | `bottom → top → four_tubes → wheels` (troca posição de `top`/`four_tubes` vs. R01). Também válida no grafo. | 29 |
 
-> Roteiro gesto a gesto de cada rota (o que fazer em cada um dos 8–32 passos, com estágio/parafusos/contexto 7D esperado): **Apêndice A do [`relatorio_final_ic.pdf`](relatorio_final_ic.pdf)**.
+> A tabela abaixo resume as 6 rotas; o roteiro gesto a gesto de cada uma foi
+> usado para gravar as sessões reais e não está mais reproduzido aqui.
 
 **Como usar as rotas:**
 
@@ -83,7 +88,7 @@ source .venv/bin/activate
 # ID sugerido automaticamente (formato SNN_YYYYMMDD)
 python -m datacol.capture_session --suggest-session-id
 
-# Gravar (troque --script-id pela rota desta sessao: R01, R06, R05, ...)
+# Gravar (troque --script-id pela rota desta sessão: R01, R06, R05, ...)
 python -m datacol.capture_session \
   --participant P01 --script-id R01 \
   --camera-model "Intelbras WCI 1080p" --camera-distance-m 2.2 \
@@ -160,6 +165,13 @@ Abra os três `report_classes_dim*.md` e confira:
 
 **Regra fixa:** treine V0 → V1 → V2, nesta ordem. V2 sempre parte do checkpoint de V1 (nunca de V0), e cada seed de V2 parte do **mesmo número de seed** em V1.
 
+> **Épocas:** a primeira rodada usava `--epochs 10`, mas a perda de treino
+> ainda caía de forma consistente nesse ponto (sub-treino). A rodada real
+> usou `--epochs 60` (a perda estabiliza por volta da época 40–50) — os
+> comandos abaixo já refletem isso. Ver
+> [`experimento_2026-07-13_split_unico_epochs60.md`](experimento_2026-07-13_split_unico_epochs60.md)
+> para a comparação numérica entre 10 e 60 épocas.
+
 ```bash
 cd /home/marcos-kalile/hrc-finetune
 source /home/marcos-kalile/anaconda3/bin/activate hrc
@@ -167,7 +179,7 @@ source /home/marcos-kalile/anaconda3/bin/activate hrc
 CKPT=/home/marcos-kalile/IC_Kalile_Intention_Prediction_HRC/traj_intention/checkpoints/seq5_pred5_epoch40_whole_pkl_final_intention_nomaskTrue.pth
 DS=/home/marcos-kalile/hrc-data-collection/datasets/v1
 
-# --- V0: so avalia o checkpoint original ---
+# --- V0: só avalia o checkpoint original ---
 python train_finetune.py --variant V0 \
   --dataset $DS/dataset_dim0.json --context-dim 0 \
   --init-checkpoint $CKPT --out-dir runs/V0
@@ -176,7 +188,7 @@ python train_finetune.py --variant V0 \
 python train_finetune.py --variant V1 \
   --dataset $DS/dataset_dim0.json --context-dim 0 \
   --init-checkpoint $CKPT --seeds 0 1 2 \
-  --epochs 10 --lr 1e-4 --batch-size 32 --out-dir runs/V1
+  --epochs 60 --lr 1e-4 --batch-size 32 --out-dir runs/V1
 
 # --- V2: fine-tune com contexto 7D, partindo de V1 (mesma seed) ---
 python train_finetune.py --variant V2 \
@@ -184,20 +196,27 @@ python train_finetune.py --variant V2 \
   --init-checkpoint-per-seed runs/V1/seed0/checkpoint.pth \
                               runs/V1/seed1/checkpoint.pth \
                               runs/V1/seed2/checkpoint.pth \
-  --seeds 0 1 2 --epochs 10 --freeze-epochs 4 \
+  --seeds 0 1 2 --epochs 60 --freeze-epochs 4 \
   --lr 1e-4 --context-lr 1e-3 --batch-size 32 --out-dir runs/V2_dim7
 
-# --- V2 (10D), so se sobrar tempo: ablacao opcional ---
+# --- V2 (10D): ablação (dimensão maior de contexto) ---
 python train_finetune.py --variant V2 \
   --dataset $DS/dataset_dim10.json --context-dim 10 \
   --init-checkpoint-per-seed runs/V1/seed0/checkpoint.pth \
                               runs/V1/seed1/checkpoint.pth \
                               runs/V1/seed2/checkpoint.pth \
-  --seeds 0 1 2 --epochs 10 --freeze-epochs 4 \
+  --seeds 0 1 2 --epochs 60 --freeze-epochs 4 \
   --lr 1e-4 --context-lr 1e-3 --batch-size 32 --out-dir runs/V2_dim10
 ```
 
 Cada rodada grava checkpoint + `metrics.json` por seed, mais `summary.json` com média ± desvio-padrão. Se o dataset final tiver poucas janelas por classe, baixe `--batch-size` para 8–16.
+
+> **Corte por entropia:** por padrão, `evaluate()` avalia através do
+> `IntentionPredictor` completo (`restrict="ood"`), que reclassifica
+> predições de baixa confiança para `no_action`. O branch
+> `sem-corte-entropia` preserva o comportamento anterior (avaliação direta
+> da rede, sem esse filtro) para comparação — ver a mesma seção do
+> experimento citada acima.
 
 > **Por que não há perda de trajetória:** o treino original usa duas perdas (classificação + regressão de trajetória futura). O dataset novo (`build_json.py`) só grava a janela de entrada e o rótulo, não o alvo de trajetória futura, então `train_finetune.py` treina só com a perda de classificação. Isso é proposital: o objetivo é isolar o efeito do contexto na classificação, não reproduzir a tarefa de trajetória do artigo original.
 
@@ -245,4 +264,5 @@ Gera `results/ablation_table.md` (tabela V0/V1/V2 com acurácia, ECE e o delta V
 - Treino e inferência: `hrc-finetune/{train_finetune,DLinear,predict}.py`
 - Testes: `hrc-finetune/tests/`
 - Agregação de resultados: `hrc-finetune/reports/scripts/aggregate_results.py`
-- Este guia: `hrc-finetune/reports/GUIA_FINAL.md` (versão detalhada em PDF: `hrc-finetune/reports/relatorio_final_ic.pdf`)
+- Este guia: `hrc-finetune/reports/GUIA_FINAL.md`
+- Resultados da rodada real (60 épocas, com e sem corte por entropia): `hrc-finetune/reports/experimento_2026-07-13_split_unico_epochs60.md`
