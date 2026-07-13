@@ -1,0 +1,42 @@
+{
+  "variant": "V2_dim10",
+  "context_dim": 10,
+  "seed": 1,
+  "metrics": {
+    "accuracy": 0.7338262476894639,
+    "per_class_accuracy": {
+      "no_action": 0.6410256410256411,
+      "get_connectors": 0.930379746835443,
+      "get_screws": 1.0,
+      "get_wheels": 0.9866666666666667
+    },
+    "confusion_matrix": [
+      [
+        750,
+        276,
+        112,
+        32
+      ],
+      [
+        11,
+        147,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        220,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        74
+      ]
+    ],
+    "ece": 0.12338403192333285,
+    "num_samples": 1623
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "variant": "V0",
+  "context_dim": 0,
+  "seed": 0,
+  "init_checkpoint": "/home/marcos-kalile/IC_Kalile_Intention_Prediction_HRC/traj_intention/checkpoints/seq5_pred5_epoch40_whole_pkl_final_intention_nomaskTrue.pth",
+  "hyperparameters": {},
+  "metrics": {
+    "accuracy": 0.20948860135551448,
+    "per_class_accuracy": {
+      "no_action": 0.252991452991453,
+      "get_connectors": 0.0,
+      "get_screws": 0.0,
+      "get_wheels": 0.5866666666666667
+    },
+    "confusion_matrix": [
+      [
+        296,
+        41,
+        0,
+        833
+      ],
+      [
+        22,
+        0,
+        0,
+        136
+      ],
+      [
+        54,
+        163,
+        0,
+        3
+      ],
+      [
+        23,
+        8,
+        0,
+        44
+      ]
+    ],
+    "ece": 0.7376872992449459,
+    "num_samples": 1623
+  }
+}

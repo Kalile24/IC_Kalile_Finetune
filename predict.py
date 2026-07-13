@@ -78,10 +78,17 @@ class IntentionPredictor:
         no_mask=False,
         filter_type=None,
         context_dim=0,
+        model=None,
         **kwargs,
     ):
         args = Args(**kwargs)
         self.context_dim = context_dim
+        if model is not None:
+            # Modelo ja construido e carregado (ex.: em treino, antes de
+            # existir um checkpoint em disco) - reusa em vez de recriar.
+            self.model = model
+            self.model.eval()
+            return
         if model_type == "final_intention":
             self.model = Model_FinalIntention(args, context_dim=context_dim)
         elif model_type == "final_traj":

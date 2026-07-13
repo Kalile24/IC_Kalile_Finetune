@@ -1,0 +1,53 @@
+{
+  "variant": "V2",
+  "context_dim": 10,
+  "seed": 0,
+  "init_checkpoint": "runs/V1/seed0/checkpoint.pth",
+  "checkpoint": "runs/V2_dim10/seed0/checkpoint.pth",
+  "hyperparameters": {
+    "optimizer": "AdamW",
+    "lr": 0.0001,
+    "context_lr": 0.001,
+    "scheduler": "CosineAnnealingLR",
+    "epochs": 60,
+    "freeze_epochs": 4,
+    "batch_size": 32
+  },
+  "metrics": {
+    "accuracy": 0.6660505237215034,
+    "per_class_accuracy": {
+      "no_action": 0.7350427350427351,
+      "get_connectors": 0.27848101265822783,
+      "get_screws": 0.6136363636363636,
+      "get_wheels": 0.56
+    },
+    "confusion_matrix": [
+      [
+        860,
+        116,
+        41,
+        153
+      ],
+      [
+        101,
+        44,
+        0,
+        13
+      ],
+      [
+        85,
+        0,
+        135,
+        0
+      ],
+      [
+        33,
+        0,
+        0,
+        42
+      ]
+    ],
+    "ece": 0.285372930750462,
+    "num_samples": 1623
+  }
+}

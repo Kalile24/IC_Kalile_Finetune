@@ -130,3 +130,31 @@ def test_predict_context_accepts_plain_list():
     traj, intention = local.predict(poses, restrict="no", context=context_list)
     assert traj.shape == (1, 5, 45)
     assert intention.shape == (1,)
+
+
+def test_predict_accepts_prebuilt_model():
+    """IntentionPredictor(model=...) reusa um modelo ja construido/carregado
+    em memoria em vez de recriar e recarregar checkpoint do disco - usado por
+    train_finetune.py:evaluate() para avaliar o modelo em treino via o
+    preditor completo (com corte por entropia), sem I/O de disco extra."""
+    from DLinear import Model_FinalIntention
+    from predict import Args
+
+    args = Args()
+    model = Model_FinalIntention(args, context_dim=0)
+    checkpoint = torch.load(str(ORIGINAL_CHECKPOINT))
+    model.load_state_dict(checkpoint, strict=False)
+
+    reference = local_predict.IntentionPredictor(
+        ckpt_path=str(ORIGINAL_CHECKPOINT), context_dim=0
+    )
+    wrapped = local_predict.IntentionPredictor(model=model)
+
+    torch.manual_seed(4)
+    poses = torch.randn(1, 5, 45)
+
+    ref_traj, ref_intention = reference.predict(poses, restrict="ood")
+    wrapped_traj, wrapped_intention = wrapped.predict(poses, restrict="ood")
+
+    assert torch.allclose(ref_traj, wrapped_traj, atol=1e-7)
+    assert torch.equal(ref_intention, wrapped_intention)

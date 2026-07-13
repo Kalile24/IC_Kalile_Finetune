@@ -1,0 +1,14 @@
+{
+  "variant": "V0",
+  "context_dim": 0,
+  "dataset": "/home/marcos-kalile/hrc-data-collection/datasets/v1/dataset_dim0.json",
+  "seeds": [
+    0
+  ],
+  "epochs": 10,
+  "freeze_epochs": 4,
+  "lr": 0.0001,
+  "context_lr": null,
+  "batch_size": 32,
+  "timestamp": "2026-07-13T13:32:57"
+}

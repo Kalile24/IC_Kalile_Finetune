@@ -4,6 +4,8 @@ __pycache__/
 *.pt
 *.pth
 *.ckpt
+!runs/**/*.pth
+!runs_no_cutoff/**/*.pth
 .env
 venv/
 .venv/

@@ -56,6 +56,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 from DLinear import Model_FinalIntention
+from predict import IntentionPredictor
 
 INTENTION_LIST = {"no_action": 0, "get_connectors": 1, "get_screws": 2, "get_wheels": 3}
 CONTEXT_DIMS = (0, 7, 10)
@@ -229,13 +230,19 @@ def evaluate(
     total = 0
     correct_total = 0
 
+    # Avalia via IntentionPredictor.predict (restrict="ood") para incluir o
+    # corte por entropia do preditor completo do paper, nao so a rede
+    # DLinear crua (predict() exige batch_size=1, como o loader ja usa).
+    predictor = IntentionPredictor(model=model)
+
     for pose, label, context in loader:
         pose = pose.to(device)
         label = label.to(device)
         ctx = context.to(device) if context.numel() > 0 else None
+        _, batch_intention = predictor.predict(pose, restrict="ood", context=ctx)
         _, logits = model(pose, ctx)
-        probs = torch.softmax(logits, dim=1)
-        confidence, pred = probs.max(dim=1)
+        confidence = torch.softmax(logits, dim=1).max(dim=1).values
+        pred = batch_intention
 
         for true_label, pred_label in zip(label.tolist(), pred.tolist()):
             confusion[true_label][pred_label] += 1

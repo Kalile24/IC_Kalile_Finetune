@@ -1,0 +1,53 @@
+{
+  "variant": "V1",
+  "context_dim": 0,
+  "seed": 0,
+  "init_checkpoint": "/home/marcos-kalile/IC_Kalile_Intention_Prediction_HRC/traj_intention/checkpoints/seq5_pred5_epoch40_whole_pkl_final_intention_nomaskTrue.pth",
+  "checkpoint": "runs/V1/seed0/checkpoint.pth",
+  "hyperparameters": {
+    "optimizer": "AdamW",
+    "lr": 0.0001,
+    "context_lr": null,
+    "scheduler": "CosineAnnealingLR",
+    "epochs": 60,
+    "freeze_epochs": 4,
+    "batch_size": 32
+  },
+  "metrics": {
+    "accuracy": 0.609981515711645,
+    "per_class_accuracy": {
+      "no_action": 0.7811965811965812,
+      "get_connectors": 0.3670886075949367,
+      "get_screws": 0.08181818181818182,
+      "get_wheels": 0.0
+    },
+    "confusion_matrix": [
+      [
+        914,
+        238,
+        18,
+        0
+      ],
+      [
+        100,
+        58,
+        0,
+        0
+      ],
+      [
+        202,
+        0,
+        18,
+        0
+      ],
+      [
+        75,
+        0,
+        0,
+        0
+      ]
+    ],
+    "ece": 0.28833274689267174,
+    "num_samples": 1623
+  }
+}

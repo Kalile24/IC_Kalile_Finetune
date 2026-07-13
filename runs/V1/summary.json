@@ -1,0 +1,9 @@
+{
+  "variant": "V1",
+  "context_dim": 0,
+  "num_seeds": 3,
+  "accuracy_mean": 0.609981515711645,
+  "accuracy_std": 0.0,
+  "ece_mean": 0.2887303267729358,
+  "ece_std": 0.0004646098647634065
+}

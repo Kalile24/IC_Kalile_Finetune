@@ -215,6 +215,52 @@ def test_v0_evaluation_is_reproducible(tmp_path):
     assert metrics_1["metrics"]["num_samples"] == 20
 
 
+def test_evaluate_applies_entropy_cutoff():
+    """evaluate() deve avaliar o preditor completo (IntentionPredictor,
+    restrict="ood"), nao so a rede DLinear crua - caso contrario o corte por
+    entropia do artigo (predict.py) nunca e exercitado nas metricas de
+    V0/V1/V2."""
+    from torch.utils.data import DataLoader
+
+    model_args = tf.ModelArgs(seq_len=5, pred_len=5, class_num=4, channels=45)
+    model = LocalModel(model_args, context_dim=0)
+    state_dict = torch.load(ORIGINAL_CHECKPOINT, map_location="cpu")
+    model.load_state_dict(state_dict, strict=False)
+    model.eval()
+
+    windows = []
+    torch.manual_seed(5)
+    for i in range(8):
+        windows.append(
+            {
+                "pose": torch.randn(5, 45).tolist(),
+                "label": i % 4,
+                "context": [],
+            }
+        )
+    dataset = tf.WindowDataset(windows, context_dim=0)
+    loader = DataLoader(dataset, batch_size=1, shuffle=False)
+
+    metrics = tf.evaluate(model, loader, torch.device("cpu"))
+
+    # Reproduz a mesma avaliacao amostra-a-amostra via IntentionPredictor
+    # diretamente, e confere que evaluate() bate com o preditor completo.
+    from predict import IntentionPredictor
+
+    predictor = IntentionPredictor(model=model)
+    expected_preds = []
+    for pose, label, context in loader:
+        _, batch_intention = predictor.predict(pose, restrict="ood")
+        expected_preds.append(batch_intention.item())
+
+    confusion = metrics.confusion_matrix
+    rebuilt_confusion = [[0] * 4 for _ in range(4)]
+    for (pose, label, context), pred in zip(loader, expected_preds):
+        rebuilt_confusion[label.item()][pred] += 1
+
+    assert confusion == rebuilt_confusion
+
+
 def test_v1_training_runs_and_produces_metrics_json(tmp_path):
     """V1: context_dim=0, fine-tune curto, checkpoint e metrics.json gerados por seed."""
     dataset_path = tmp_path / "dataset_dim0.json"
