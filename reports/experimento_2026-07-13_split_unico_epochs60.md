@@ -64,10 +64,9 @@ das 3 classes de ação** em quase todos os cenários testados. Ver
 `results/confusion_matrices.png` (com corte): a coluna `get_screws` fica
 zerada em V1 e quase zerada em V2.
 
-Sem o corte (`argmax` cru dos logits — branch `sem-corte-entropia`, que
-reproduz o comportamento de `evaluate()` anterior a este experimento), a
-mesma rede treinada mostra recall de **93-100% em `get_screws`** e
-**97-99% em `get_wheels`** nas variantes V2. Ver
+Sem o corte (`argmax` cru dos logits, via `--restrict no`), a mesma rede
+treinada mostra recall de **93-100% em `get_screws`** e **97-99% em
+`get_wheels`** nas variantes V2. Ver
 `results_no_cutoff/confusion_matrices.png`.
 
 ## Resultados — 60 épocas, com corte por entropia (`restrict="ood"`)
@@ -124,13 +123,18 @@ igual em todas as variantes, ~0.29).
    recalibrar por dataset (ex.: escolher o limiar que maximiza acurácia
    macro no split de validação), em vez de herdar 0.4/0.5 do artigo.
 
-## Branch de comparação
+## Nota sobre como os dois cenários foram gerados
 
-`sem-corte-entropia` (GitHub, a partir do commit `ce0b3a9`) preserva o
-`evaluate()` original (antes desta sessão), que usa `argmax` cru dos logits
-sem passar pelo `IntentionPredictor`/corte por entropia. Serviu de base para
-gerar os números de "sem corte" acima, sem misturar o código de avaliação
-das duas versões.
+Os números "sem corte" acima foram gerados originalmente fazendo checkout
+de um branch separado (`sem-corte-entropia`) que preservava o `evaluate()`
+anterior a este experimento (`argmax` cru, sem `IntentionPredictor`), para
+não misturar o código de avaliação das duas versões.
+
+Esse branch foi removido depois: `train_finetune.py` passou a expor os dois
+modos num único lugar via `--restrict {no,ood}` (mesma opção do `test.py`
+original do artigo), e um checkpoint já treinado pode ser reavaliado em
+outro modo sem retreinar, usando `--eval-only` — ver
+`runs_no_cutoff/NOTA_REAVALIACAO.md` para o comando exato.
 
 ## Reprodução
 
@@ -172,8 +176,26 @@ done
 # 3. Tabela e figuras
 python reports/scripts/aggregate_results.py --runs-root runs --out-dir results
 
-# 4. Mesma avaliação sem corte por entropia: checkout do branch
-#    sem-corte-entropia, reavaliar os checkpoints já treinados acima com
-#    evaluate() (argmax cru), salvar em runs_no_cutoff/ e rodar
-#    aggregate_results.py --runs-root runs_no_cutoff --out-dir results_no_cutoff
+# 4. Mesma avaliação sem corte por entropia, reaproveitando os checkpoints
+#    ja treinados no passo 2 (sem retreinar):
+python train_finetune.py --eval-only --variant V1 --dataset $DATA_ROOT/dataset_dim0.json \
+  --context-dim 0 \
+  --init-checkpoint-per-seed runs/V1/seed0/checkpoint.pth \
+                              runs/V1/seed1/checkpoint.pth \
+                              runs/V1/seed2/checkpoint.pth \
+  --seeds 0 1 2 --restrict no --out-dir runs_no_cutoff/V1
+
+for dim in 7 10; do
+  python train_finetune.py --eval-only --variant V2 --dataset $DATA_ROOT/dataset_dim${dim}.json \
+    --context-dim ${dim} \
+    --init-checkpoint-per-seed runs/V2_dim${dim}/seed0/checkpoint.pth \
+                                runs/V2_dim${dim}/seed1/checkpoint.pth \
+                                runs/V2_dim${dim}/seed2/checkpoint.pth \
+    --seeds 0 1 2 --restrict no --out-dir runs_no_cutoff/V2_dim${dim}
+done
+
+python train_finetune.py --eval-only --variant V0 --dataset $DATA_ROOT/dataset_dim0.json \
+  --context-dim 0 --init-checkpoint $CKPT --seeds 0 --restrict no --out-dir runs_no_cutoff/V0
+
+python reports/scripts/aggregate_results.py --runs-root runs_no_cutoff --out-dir results_no_cutoff
 ```

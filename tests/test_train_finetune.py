@@ -369,3 +369,101 @@ def test_dataset_context_dim_mismatch_rejected(tmp_path):
                 "--out-dir", str(tmp_path / "runs_mismatch"),
             ]
         )
+
+
+def test_eval_only_reevaluates_existing_checkpoint_without_training(tmp_path):
+    """--eval-only reavalia um checkpoint ja treinado, sem chamar train_one_epoch.
+
+    Reproduz o cenario que antes exigia trocar de branch (sem-corte-entropia)
+    ou escrever um script solto: treinar uma vez com --restrict ood (padrao),
+    depois reavaliar o MESMO checkpoint com --restrict no, sem retreinar.
+    """
+    dataset_path = tmp_path / "dataset_dim0.json"
+    _write_synthetic_dataset(dataset_path, context_dim=0)
+
+    train_dir = tmp_path / "runs_v1"
+    tf.main(
+        [
+            "--variant", "V1",
+            "--dataset", str(dataset_path),
+            "--context-dim", "0",
+            "--init-checkpoint", str(ORIGINAL_CHECKPOINT),
+            "--seeds", "0", "1",
+            "--epochs", "1",
+            "--batch-size", "8",
+            "--out-dir", str(train_dir),
+        ]
+    )
+    checkpoint0 = train_dir / "seed0" / "checkpoint.pth"
+    checkpoint1 = train_dir / "seed1" / "checkpoint.pth"
+    assert checkpoint0.exists() and checkpoint1.exists()
+    mtime_before = checkpoint0.stat().st_mtime
+
+    eval_dir = tmp_path / "runs_v1_no_cutoff"
+    tf.main(
+        [
+            "--eval-only",
+            "--variant", "V1",
+            "--dataset", str(dataset_path),
+            "--context-dim", "0",
+            "--init-checkpoint-per-seed", str(checkpoint0), str(checkpoint1),
+            "--seeds", "0", "1",
+            "--restrict", "no",
+            "--out-dir", str(eval_dir),
+        ]
+    )
+
+    # O checkpoint original de V1 nao foi sobrescrito (nada foi retreinado).
+    assert checkpoint0.stat().st_mtime == mtime_before
+    assert not (eval_dir / "seed0" / "checkpoint.pth").exists()
+
+    for seed in (0, 1):
+        metrics = json.loads((eval_dir / f"seed{seed}" / "metrics.json").read_text())
+        assert metrics["restrict"] == "no"
+        assert "accuracy" in metrics["metrics"]
+
+    summary = json.loads((eval_dir / "summary.json").read_text())
+    assert summary["restrict"] == "no"
+    assert summary["num_seeds"] == 2
+
+
+def test_eval_only_single_checkpoint_matches_restrict_flag(tmp_path):
+    """--eval-only com um unico --init-checkpoint (sem --init-checkpoint-per-seed)
+    reusa o mesmo checkpoint para todas as seeds pedidas."""
+    dataset_path = tmp_path / "dataset_dim0.json"
+    _write_synthetic_dataset(dataset_path, context_dim=0)
+
+    out_dir = tmp_path / "runs_v0_no_cutoff"
+    tf.main(
+        [
+            "--eval-only",
+            "--variant", "V0",
+            "--dataset", str(dataset_path),
+            "--context-dim", "0",
+            "--init-checkpoint", str(ORIGINAL_CHECKPOINT),
+            "--seeds", "0",
+            "--restrict", "no",
+            "--out-dir", str(out_dir),
+        ]
+    )
+
+    metrics = json.loads((out_dir / "seed0" / "metrics.json").read_text())
+    assert metrics["restrict"] == "no"
+    assert metrics["init_checkpoint"] == str(ORIGINAL_CHECKPOINT)
+
+
+def test_eval_only_requires_a_checkpoint(tmp_path):
+    dataset_path = tmp_path / "dataset_dim0.json"
+    _write_synthetic_dataset(dataset_path, context_dim=0)
+
+    with pytest.raises(ValueError, match="eval-only requires"):
+        tf.main(
+            [
+                "--eval-only",
+                "--variant", "V1",
+                "--dataset", str(dataset_path),
+                "--context-dim", "0",
+                "--seeds", "0",
+                "--out-dir", str(tmp_path / "runs_missing_ckpt"),
+            ]
+        )

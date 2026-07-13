@@ -212,11 +212,12 @@ python train_finetune.py --variant V2 \
 Cada rodada grava checkpoint + `metrics.json` por seed, mais `summary.json` com média ± desvio-padrão. Se o dataset final tiver poucas janelas por classe, baixe `--batch-size` para 8–16.
 
 > **Corte por entropia:** por padrão, `evaluate()` avalia através do
-> `IntentionPredictor` completo (`restrict="ood"`), que reclassifica
-> predições de baixa confiança para `no_action`. O branch
-> `sem-corte-entropia` preserva o comportamento anterior (avaliação direta
-> da rede, sem esse filtro) para comparação — ver a mesma seção do
-> experimento citada acima.
+> `IntentionPredictor` completo (`--restrict ood`), que reclassifica
+> predições de baixa confiança para `no_action`. Use `--restrict no` para
+> avaliar o argmax cru dos logits, sem esse filtro — ver a mesma seção do
+> experimento citada acima. Para reavaliar um checkpoint já treinado com
+> outro `--restrict`, sem repetir o treino, use `--eval-only` (ver exemplo
+> no topo de `train_finetune.py`).
 
 > **Por que não há perda de trajetória:** o treino original usa duas perdas (classificação + regressão de trajetória futura). O dataset novo (`build_json.py`) só grava a janela de entrada e o rótulo, não o alvo de trajetória futura, então `train_finetune.py` treina só com a perda de classificação. Isso é proposital: o objetivo é isolar o efeito do contexto na classificação, não reproduzir a tarefa de trajetória do artigo original.
 

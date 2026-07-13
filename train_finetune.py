@@ -39,6 +39,25 @@ Exemplo de uso:
                                     runs/V1/seed1/checkpoint.pth \\
                                     runs/V1/seed2/checkpoint.pth \\
         --seeds 0 1 2 --out-dir runs/V2_dim7
+
+Corte por entropia na avaliacao (--restrict):
+    "ood" (padrao) avalia atraves do IntentionPredictor completo (mesmo
+    filtro de confianca do artigo original, restrict="ood" em predict.py).
+    "no" avalia o argmax cru dos logits da rede, sem esse filtro. Os dois
+    modos sao equivalentes ao "restrict" do test.py original do artigo.
+
+Reavaliar um checkpoint ja treinado sem retreinar (--eval-only):
+    Util para comparar --restrict "ood" vs "no" sobre os MESMOS pesos, sem
+    rodar o treino de novo. Aceita --init-checkpoint (uma seed) ou
+    --init-checkpoint-per-seed (uma por seed, mesmo layout usado por V2).
+
+    # Reavalia os 3 checkpoints de V1 sem o corte por entropia
+    python train_finetune.py --eval-only --variant V1 --context-dim 0 \\
+        --dataset datasets/v1/dataset_dim0.json \\
+        --init-checkpoint-per-seed runs/V1/seed0/checkpoint.pth \\
+                                    runs/V1/seed1/checkpoint.pth \\
+                                    runs/V1/seed2/checkpoint.pth \\
+        --seeds 0 1 2 --restrict no --out-dir runs_sem_corte/V1
 """
 from __future__ import annotations
 
@@ -220,6 +239,7 @@ def evaluate(
     model: Model_FinalIntention,
     loader: DataLoader,
     device: torch.device,
+    restrict: str = "ood",
 ) -> EvalMetrics:
     model.eval()
     class_names = list(INTENTION_LIST.keys())
@@ -230,19 +250,23 @@ def evaluate(
     total = 0
     correct_total = 0
 
-    # Avalia via IntentionPredictor.predict (restrict="ood") para incluir o
-    # corte por entropia do preditor completo do paper, nao so a rede
-    # DLinear crua (predict() exige batch_size=1, como o loader ja usa).
-    predictor = IntentionPredictor(model=model)
+    # restrict="ood" (padrao): preditor completo do artigo, via
+    # IntentionPredictor.predict (corte por entropia, predict() exige
+    # batch_size=1, como o loader ja usa). restrict="no": argmax cru dos
+    # logits da rede, sem esse filtro. Mesmas duas opcoes de --restrict do
+    # test.py original.
+    predictor = IntentionPredictor(model=model) if restrict != "no" else None
 
     for pose, label, context in loader:
         pose = pose.to(device)
         label = label.to(device)
         ctx = context.to(device) if context.numel() > 0 else None
-        _, batch_intention = predictor.predict(pose, restrict="ood", context=ctx)
         _, logits = model(pose, ctx)
         confidence = torch.softmax(logits, dim=1).max(dim=1).values
-        pred = batch_intention
+        if predictor is not None:
+            _, pred = predictor.predict(pose, restrict=restrict, context=ctx)
+        else:
+            pred = torch.argmax(logits, dim=1)
 
         for true_label, pred_label in zip(label.tolist(), pred.tolist()):
             confusion[true_label][pred_label] += 1
@@ -315,6 +339,8 @@ def run_variant(
     out_dir: Path,
     model_args: ModelArgs,
     device: torch.device,
+    restrict: str = "ood",
+    eval_only: bool = False,
 ) -> Dict[str, Any]:
     set_seed(seed)
 
@@ -325,20 +351,29 @@ def run_variant(
     test_dataset = WindowDataset(test_windows, context_dim)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
-    if variant == "V0":
-        # V0 e apenas avaliacao do checkpoint original, sem nenhum treino.
-        metrics = evaluate(model, test_loader, device)
+    if variant == "V0" or eval_only:
+        # V0 e --eval-only nao treinam: so avaliam o checkpoint fornecido
+        # (o mesmo checkpoint pode ser reavaliado com --restrict diferente
+        # sem reexecutar o treino).
+        metrics = evaluate(model, test_loader, device, restrict=restrict)
         result = {
             "variant": variant,
             "context_dim": context_dim,
             "seed": seed,
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
+            "restrict": restrict,
             "hyperparameters": {},
             "metrics": metrics.to_dict(),
         }
-        out_dir.mkdir(parents=True, exist_ok=True)
-        with open(out_dir / "eval_metrics.json", "w", encoding="utf-8") as handle:
-            json.dump(result, handle, indent=2)
+        if variant == "V0" and not eval_only:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with open(out_dir / "eval_metrics.json", "w", encoding="utf-8") as handle:
+                json.dump(result, handle, indent=2)
+        else:
+            seed_dir = out_dir / f"seed{seed}"
+            seed_dir.mkdir(parents=True, exist_ok=True)
+            with open(seed_dir / "metrics.json", "w", encoding="utf-8") as handle:
+                json.dump(result, handle, indent=2)
         return result
 
     train_dataset = WindowDataset(train_windows, context_dim)
@@ -371,7 +406,7 @@ def run_variant(
         scheduler.step()
         log_lines.append(f"epoch {epoch + 1}/{remaining_epochs} loss={loss:.6f}")
 
-    metrics = evaluate(model, test_loader, device)
+    metrics = evaluate(model, test_loader, device, restrict=restrict)
 
     checkpoint_path = seed_dir / "checkpoint.pth"
     torch.save(model.state_dict(), checkpoint_path)
@@ -383,6 +418,7 @@ def run_variant(
         "seed": seed,
         "init_checkpoint": str(init_checkpoint) if init_checkpoint else None,
         "checkpoint": str(checkpoint_path),
+        "restrict": restrict,
         "hyperparameters": {
             "optimizer": "AdamW",
             "lr": lr,
@@ -424,22 +460,51 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--class-num", type=int, default=4)
     parser.add_argument("--channels", type=int, default=45)
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument(
+        "--restrict",
+        type=str,
+        choices=("no", "ood"),
+        default="ood",
+        help=(
+            "modo de avaliacao (mesmo restrict de test.py/predict.py): "
+            "'ood' (padrao) usa o IntentionPredictor completo com corte "
+            "por entropia; 'no' usa o argmax cru dos logits da rede"
+        ),
+    )
+    parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help=(
+            "nao treina: so avalia o(s) checkpoint(s) fornecido(s) em "
+            "--init-checkpoint/--init-checkpoint-per-seed. Util para "
+            "reavaliar um checkpoint ja treinado com outro --restrict "
+            "sem retreinar"
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
 
-    if args.variant in ("V1", "V2") and args.context_dim == 0 and args.variant == "V2":
-        raise ValueError("V2 requires --context-dim in {7, 10}; use V1 for context_dim=0")
-
-    if args.variant == "V2" and not args.init_checkpoint_per_seed:
+    if args.eval_only and not args.init_checkpoint and not args.init_checkpoint_per_seed:
         raise ValueError(
-            "V2 requires --init-checkpoint-per-seed with one checkpoint per --seeds entry "
-            "(Secao 6: V2 inicializa do checkpoint de V1, pareado por seed)"
+            "--eval-only requires --init-checkpoint or --init-checkpoint-per-seed"
         )
-    if args.variant == "V2" and len(args.init_checkpoint_per_seed) != len(args.seeds):
+    if args.eval_only and args.init_checkpoint_per_seed and len(args.init_checkpoint_per_seed) != len(args.seeds):
         raise ValueError("--init-checkpoint-per-seed must have exactly one entry per --seeds")
+
+    if not args.eval_only:
+        if args.variant in ("V1", "V2") and args.context_dim == 0 and args.variant == "V2":
+            raise ValueError("V2 requires --context-dim in {7, 10}; use V1 for context_dim=0")
+
+        if args.variant == "V2" and not args.init_checkpoint_per_seed:
+            raise ValueError(
+                "V2 requires --init-checkpoint-per-seed with one checkpoint per --seeds entry "
+                "(Secao 6: V2 inicializa do checkpoint de V1, pareado por seed)"
+            )
+        if args.variant == "V2" and len(args.init_checkpoint_per_seed) != len(args.seeds):
+            raise ValueError("--init-checkpoint-per-seed must have exactly one entry per --seeds")
 
     dataset = load_dataset_json(args.dataset)
     meta = dataset.get("_meta", {})
@@ -452,7 +517,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     train_windows = flatten_windows(dataset, "train")
     test_windows = flatten_windows(dataset, "test")
-    if args.variant != "V0" and not train_windows:
+    if not args.eval_only and args.variant != "V0" and not train_windows:
         raise ValueError(f"no training windows found in {args.dataset}")
     if not test_windows:
         raise ValueError(f"no test windows found in {args.dataset}")
@@ -476,13 +541,45 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "lr": args.lr,
         "context_lr": args.context_lr,
         "batch_size": args.batch_size,
+        "restrict": args.restrict,
+        "eval_only": args.eval_only,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     with open(args.out_dir / "config.json", "w", encoding="utf-8") as handle:
         json.dump(run_config, handle, indent=2)
 
     results = []
-    if args.variant == "V0":
+    if args.eval_only:
+        # So avalia o(s) checkpoint(s) fornecido(s), sem treinar. Aceita um
+        # unico --init-checkpoint (repetido para todas as seeds) ou um
+        # --init-checkpoint-per-seed (um por seed, mesmo layout de V2) --
+        # util para reavaliar checkpoints de V1/V2 ja treinados com outro
+        # --restrict, sem repetir o treino.
+        if args.init_checkpoint_per_seed:
+            checkpoints = args.init_checkpoint_per_seed
+        else:
+            checkpoints = [args.init_checkpoint] * len(args.seeds)
+        for seed, init_ckpt in zip(args.seeds, checkpoints):
+            result = run_variant(
+                variant=args.variant,
+                context_dim=args.context_dim,
+                train_windows=train_windows,
+                test_windows=test_windows,
+                init_checkpoint=init_ckpt,
+                seed=seed,
+                epochs=0,
+                lr=args.lr,
+                context_lr=args.context_lr,
+                batch_size=args.batch_size,
+                freeze_epochs=0,
+                out_dir=args.out_dir,
+                model_args=model_args,
+                device=device,
+                restrict=args.restrict,
+                eval_only=True,
+            )
+            results.append(result)
+    elif args.variant == "V0":
         result = run_variant(
             variant="V0",
             context_dim=args.context_dim,
@@ -498,6 +595,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             out_dir=args.out_dir,
             model_args=model_args,
             device=device,
+            restrict=args.restrict,
         )
         results.append(result)
     else:
@@ -521,6 +619,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 out_dir=args.out_dir,
                 model_args=model_args,
                 device=device,
+                restrict=args.restrict,
             )
             results.append(result)
 
@@ -530,6 +629,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         summary = {
             "variant": args.variant,
             "context_dim": args.context_dim,
+            "restrict": args.restrict,
             "num_seeds": len(results),
             "accuracy_mean": float(np.mean(accuracies)),
             "accuracy_std": float(np.std(accuracies)),

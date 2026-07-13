@@ -99,12 +99,24 @@ com média ± desvio-padrão.
 
 ### Avaliação: com e sem corte por entropia
 
-`evaluate()` em `train_finetune.py` avalia por padrão através do
-`IntentionPredictor` completo (`restrict="ood"`), que reclassifica
-predições de baixa confiança para `no_action` — o comportamento do artigo
-original. O branch [`sem-corte-entropia`](../../tree/sem-corte-entropia)
-preserva o `evaluate()` anterior (argmax cru dos logits, sem esse filtro),
-para comparação controlada sobre os mesmos checkpoints.
+`--restrict {no,ood}` controla o modo de avaliação (mesma opção do
+`test.py` original do artigo). `ood` (padrão) avalia através do
+`IntentionPredictor` completo, que reclassifica predições de baixa
+confiança para `no_action`. `no` avalia o argmax cru dos logits da rede,
+sem esse filtro.
+
+Para reavaliar um checkpoint **já treinado** em outro modo, sem repetir o
+treino, use `--eval-only` com `--init-checkpoint` (uma seed) ou
+`--init-checkpoint-per-seed` (uma por seed, mesmo layout de V2):
+
+```bash
+python train_finetune.py --eval-only --variant V1 --context-dim 0 \
+  --dataset $DS/dataset_dim0.json \
+  --init-checkpoint-per-seed runs/V1/seed0/checkpoint.pth \
+                              runs/V1/seed1/checkpoint.pth \
+                              runs/V1/seed2/checkpoint.pth \
+  --seeds 0 1 2 --restrict no --out-dir runs_no_cutoff/V1
+```
 
 ### Agregar resultados finais
 
